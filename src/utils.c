@@ -52,3 +52,58 @@ int gaussian_elimination(ff_elem** A, ff_elem* b, ff_elem* x, uint64_t n, uint32
     for (uint64_t i = 0; i < n; i++) x[i] = b[i];
     return 0;
 }
+
+
+int gaussian_elimination_general(ff_elem **A, ff_elem *b, ff_elem *x, uint64_t rows, uint64_t cols, uint32_t p){
+    uint64_t *pivot_col=malloc(rows * sizeof(u_int64_t));
+    u_int64_t r = 0;
+    for (uint64_t c= 0 ; c<cols && r< rows; c++){
+        
+        uint64_t piv = r;
+        while ( piv < rows && A[piv][c] == 0)
+        {
+            piv++;
+        }
+
+        if (piv == rows){
+            continue;
+        }
+
+        if (piv != r){
+            for (uint64_t j=c; j < cols; j++){
+                ff_elem t = A[r][j] ; A[r][j] = A[piv][j]; A[piv][j]= t;
+            }
+            ff_elem t = b[r]; b[r] = b[piv]; b[piv] = t;
+        }
+
+        ff_elem inv = ff_inv(A[r][c], p);
+        for (uint64_t j = c; j < cols; j++) A[r][j] = ff_mul(A[r][j], inv, p);
+        b[r] = ff_mul(b[r], inv, p);
+            
+        for (uint64_t i = 0; i < rows; i++) {
+            if (i == r || A[i][c] == 0) continue;
+            ff_elem f = A[i][c];
+            for (uint64_t j = c; j < cols; j++) A[i][j] = ff_add(A[i][j], ff_neg(ff_mul(f, A[r][j], p), p), p);
+            b[i] = ff_add(b[i], ff_neg(ff_mul(f, b[r], p), p), p);
+        }
+
+        pivot_col[r] = c;
+        r++;
+    }
+
+
+    for (uint64_t i = r ; i< rows; i++ ){
+            if (b[i] != 0 ){
+                free(pivot_col);
+                return -1;
+            }
+    }
+
+    for (uint64_t j = 0; j < cols; j++) x[j] = 0;  
+    for (uint64_t k = 0; k < r; k++) {
+        x[pivot_col[k]] = b[k];
+    }
+
+    free(pivot_col);
+    return 0;
+}
