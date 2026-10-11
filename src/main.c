@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "encoding.h"
 #include "welch_berlekamp.h"
+#include "fft.h"
 
 
 int main(){
@@ -134,7 +135,51 @@ int main(){
         for (int i = 0; i < 8; i++) printf("%u ", wd[i]);
         printf("\n");
     }
+
     free(c3);
+
+
+        // ===== Test 1: FFT na malom primeru =====
+    ff_elem v[4] = {1, 2, 3, 4};
+    fft(v, 4, 2, 5);
+    printf("FFT:  %u %u %u %u\n", v[0], v[1], v[2], v[3]);
+    ifft(v, 4, 2, 5);
+    printf("IFFT: %u %u %u %u\n", v[0], v[1], v[2], v[3]);
+
+    // ===== Test 2: FFT kodiranje == encode_message =====
+    ff_elem w4[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem a4[16];
+    for (int i = 0; i < 16; i++) a4[i] = ff_pow(3, i, 17);
+    ff_elem *c4;
+    encode_message(17, w4, 8, a4, 16, &c4);       // staro kodiranje (matrica)
+
+    ff_elem z[16] = {0};                           // poruka dopunjena nulama do N
+    for (int i = 0; i < 8; i++) z[i] = w4[i];
+    fft(z, 16, 3, 17);                             // novo kodiranje (FFT)
+
+    int isto = 1;
+    for (int i = 0; i < 16; i++) if (z[i] != c4[i]) isto = 0;
+    printf("FFT kodiranje == encode_message: %s\n", isto ? "DA" : "NE");
+    free(c4);
+
+
+        // ===== Test brzog dekodera (Task 4.3) =====
+    ff_elem w5[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem c5[16] = {0};
+    for (int i = 0; i < 8; i++) c5[i] = w5[i];   // poruka dopunjena nulama
+    fft(c5, 16, 3, 17);                           // kodiranje = FFT
+
+    int poz5[5] = {1, 4, 7, 10, 13};
+    for (int ne = 0; ne <= 5; ne++) {
+        ff_elem y[16], wd[8] = {0};
+        for (int i = 0; i < 16; i++) y[i] = c5[i];
+        for (int k = 0; k < ne; k++) y[poz5[k]] = ff_add(y[poz5[k]], 5, 17);
+
+        int r = wb_decode_fft(y, 16, 8, 3, 17, wd);
+        printf("FFT dekoder, greske: %d -> povratna = %d, w = ", ne, r);
+        for (int i = 0; i < 8; i++) printf("%u ", wd[i]);
+        printf("\n");
+    }
 
     return 0;
 }

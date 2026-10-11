@@ -11,4 +11,7 @@ void build_wb_system(ff_elem **M, ff_elem *rhs,
 int poly_div_monic(const ff_elem *G, uint32_t lenG, const ff_elem *E, uint32_t e, ff_elem *Q, uint32_t p);
 
 int wb_decode(const ff_elem *y, const ff_elem *a_list, uint64_t N, uint32_t n, uint32_t p, ff_elem *w_out);
+
+int wb_decode_fft(const ff_elem *y, uint64_t N, uint32_t n,
+                  ff_elem alpha, uint32_t p, ff_elem *w_out);
 #endif

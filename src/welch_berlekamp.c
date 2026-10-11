@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "welch_berlekamp.h"
+#include "fft.h"
 
 void build_wb_system(ff_elem **M, ff_elem *rhs,
                      const ff_elem *y, const ff_elem *a_list,
@@ -99,5 +100,73 @@ int wb_decode(const ff_elem *y, const ff_elem *a_list,
     free(rhs);
     free(x);
 
+    return ret;
+}
+
+/* Brzi Welch-Berlekamp dekoder (Task 4.3).
+   Tačke su a_i = alpha^i, N stepen dvojke, p = N + 1.
+   Vraća 0 ako je uspelo, -1 ako nije. */
+int wb_decode_fft(const ff_elem *y, uint64_t N, uint32_t n,
+                  ff_elem alpha, uint32_t p, ff_elem *w_out)
+{
+    uint32_t e = (N - n) / 2;
+
+    /* KORAK 1: Y = inverzni DFT od y.
+       ifft radi "u mestu", a y ne smemo da menjamo -> prvo kopija. */
+    ff_elem *Y = malloc(N * sizeof(ff_elem));
+    for (uint64_t i=0; i<N;i++){
+        Y[i]=y[i];
+    }
+
+    ifft(Y,N,alpha,p);
+    
+
+    /* KORAK 2: napravi mali sistem B * E = desna  (e x e) */
+    ff_elem **B = alloc_matrix(e, e);
+    ff_elem *desna = malloc(e * sizeof(ff_elem));
+    ff_elem *Ex = malloc(e * sizeof(ff_elem));      
+
+    for (uint32_t r = 0; r < e; r++) {
+        uint64_t j = n + e + r;
+        for (uint32_t k = 0; k < e; k++) {
+            B[r][k] = Y[j-k];
+        }
+        desna[r]=ff_neg(Y[j-e],p);
+    }
+
+    /* KORAK 3: reši mali sistem */
+    int ret= gaussian_elimination_general(B, desna,Ex, e,e,p );
+    /* KORAK 4: napravi E (dužine e+1, E[e] = 1) */
+    if (ret == 0) {
+        ff_elem *E = malloc((e + 1) * sizeof(ff_elem));
+        for(uint32_t i =0 ; i < e; i++){
+            E[i]=Ex[i];
+        }
+        E[e]=1;
+
+        ff_elem *G= malloc((n+e)*sizeof(ff_elem));
+        for(uint64_t j=0; j< n+e;j++){
+            ff_elem s= 0;
+            for(uint32_t k=0; k<=e;k++){
+                uint64_t idx= (j+N-k)%N;
+                s= ff_add(s,ff_mul(E[k],Y[idx],p),p);
+            }
+            G[j]=s;
+        }
+
+        ret = poly_div_monic(G, n + e, E, e, w_out, p);
+
+
+
+
+        free(E);
+        free(G);
+    }
+
+    free(Y);
+  
+    free_matrix(B);
+    free(desna);
+    free(Ex);
     return ret;
 }
