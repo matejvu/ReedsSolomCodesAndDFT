@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include "utils.h"
 #include "encoding.h"
+#include "welch_berlekamp.h"
+#include "fft.h"
 
 
 int main(){
@@ -59,6 +61,125 @@ int main(){
     free(w);
     free(a_list);
     free(c);
+
+    uint32_t p2 = 17, n2 = 8, e2 = 4;
+    uint64_t N2 = 16;
+    ff_elem a2[16];
+    ff_elem w2[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem *c2;
+
+    // tačke a_i = 3^i mod 17
+    for (int i = 0; i < 16; i++) a2[i] = ff_pow(3, i, p2);
+
+    // kodiramo poruku w2 -> kodna reč c2 (16 brojeva)
+    encode_message(p2, w2, n2, a2, N2, &c2);
+
+    // pravimo sistem M * [g | E] = rhs
+    ff_elem **M = alloc_matrix(N2, n2 + 2 * e2);
+    ff_elem *rhs = malloc(N2 * sizeof(ff_elem));
+    build_wb_system(M, rhs, c2, a2, N2, n2, e2, p2);
+
+    printf("Matrica M:\n");
+    print_matrix(M, N2, n2 + 2 * e2);
+
+    free_matrix(M);
+    free(rhs);
+    free(c2);
+
+
+    // ===== Test novog Gausa =====
+    ff_elem rhs1[3] = {1, 0, 1};   // ima rešenje
+    ff_elem rhs2[3] = {1, 0, 2};   // nema rešenje
+    ff_elem *testovi[2] = {rhs1, rhs2};
+
+    for (int t = 0; t < 2; t++) {
+        ff_elem **G = alloc_matrix(3, 3);
+        ff_elem xg[3];
+        G[0][0] = 1; G[0][1] = 2; G[0][2] = 3;
+        G[1][0] = 2; G[1][1] = 4; G[1][2] = 1;
+        G[2][0] = 3; G[2][1] = 6; G[2][2] = 4;
+
+        int ret = gaussian_elimination_general(G, testovi[t], xg, 3, 3, 7);
+        printf("Test %d: povratna vrednost = %d\n", t + 1, ret);
+        if (ret == 0) printf("x = (%u, %u, %u)\n", xg[0], xg[1], xg[2]);
+        free_matrix(G);
+    }
+
+    // ===== Test deljenja polinoma =====
+    ff_elem Gt[4] = {2, 0, 5, 1};   // x^3 + 5x^2 + 2
+    ff_elem Et[2] = {2, 1};         // x + 2
+    ff_elem Qt[3];
+    int rd = poly_div_monic(Gt, 4, Et, 1, Qt, 7);
+    printf("Deljenje: povratna = %d, Q = (%u, %u, %u)\n", rd, Qt[0], Qt[1], Qt[2]);
+
+
+    // ===== Test Welch-Berlekamp dekodera =====
+    uint32_t p3 = 17, n3 = 8;
+    uint64_t N3 = 16;
+    ff_elem a3[16];
+    ff_elem w3[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem *c3;
+    for (int i = 0; i < 16; i++) a3[i] = ff_pow(3, i, p3);
+    encode_message(p3, w3, n3, a3, N3, &c3);
+
+    int pozicije[5] = {1, 4, 7, 10, 13};   // gde kvarimo
+
+    for (int ne = 0; ne <= 5; ne++) {
+        ff_elem y[16], wd[8] = {0};
+        for (int i = 0; i < 16; i++) y[i] = c3[i];                  // kopija kodne reči
+        for (int k = 0; k < ne; k++)
+            y[pozicije[k]] = ff_add(y[pozicije[k]], 5, p3);         // pokvari ne slova
+
+        int r = wb_decode(y, a3, N3, n3, p3, wd);
+        printf("Greske: %d -> povratna = %d, w = ", ne, r);
+        for (int i = 0; i < 8; i++) printf("%u ", wd[i]);
+        printf("\n");
+    }
+
+    free(c3);
+
+
+        // ===== Test 1: FFT na malom primeru =====
+    ff_elem v[4] = {1, 2, 3, 4};
+    fft(v, 4, 2, 5);
+    printf("FFT:  %u %u %u %u\n", v[0], v[1], v[2], v[3]);
+    ifft(v, 4, 2, 5);
+    printf("IFFT: %u %u %u %u\n", v[0], v[1], v[2], v[3]);
+
+    // ===== Test 2: FFT kodiranje == encode_message =====
+    ff_elem w4[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem a4[16];
+    for (int i = 0; i < 16; i++) a4[i] = ff_pow(3, i, 17);
+    ff_elem *c4;
+    encode_message(17, w4, 8, a4, 16, &c4);       // staro kodiranje (matrica)
+
+    ff_elem z[16] = {0};                           // poruka dopunjena nulama do N
+    for (int i = 0; i < 8; i++) z[i] = w4[i];
+    fft(z, 16, 3, 17);                             // novo kodiranje (FFT)
+
+    int isto = 1;
+    for (int i = 0; i < 16; i++) if (z[i] != c4[i]) isto = 0;
+    printf("FFT kodiranje == encode_message: %s\n", isto ? "DA" : "NE");
+    free(c4);
+
+
+        // ===== Test brzog dekodera (Task 4.3) =====
+    ff_elem w5[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    ff_elem c5[16] = {0};
+    for (int i = 0; i < 8; i++) c5[i] = w5[i];   // poruka dopunjena nulama
+    fft(c5, 16, 3, 17);                           // kodiranje = FFT
+
+    int poz5[5] = {1, 4, 7, 10, 13};
+    for (int ne = 0; ne <= 5; ne++) {
+        ff_elem y[16], wd[8] = {0};
+        for (int i = 0; i < 16; i++) y[i] = c5[i];
+        for (int k = 0; k < ne; k++) y[poz5[k]] = ff_add(y[poz5[k]], 5, 17);
+
+        int r = wb_decode_fft(y, 16, 8, 3, 17, wd);
+        printf("FFT dekoder, greske: %d -> povratna = %d, w = ", ne, r);
+        for (int i = 0; i < 8; i++) printf("%u ", wd[i]);
+        printf("\n");
+    }
 
     return 0;
 }
